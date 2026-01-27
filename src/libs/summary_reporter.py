@@ -234,16 +234,16 @@ class SummaryReporter:
                     priority_emoji = {"P0": "🔴", "P1": "🟡", "P2": "🟢"}
                     lines.append(f"\n**{priority_emoji.get(priority, '⚪')} {priority} 级别任务** ({len(issues)} 个):")
                     for issue_info in issues:
-                        issue_number = issue_info.get("issue_number")
-                        title = issue_info.get("title", "")
+                        #issue_number = issue_info.get("issue_number")
+                        #title = issue_info.get("title", "")
                         url = issue_info.get("url", "")
                         hours = issue_info.get("hours_since_update", 0)
 
                         # 截断过长的标题
-                        if len(title) > 60:
-                            title = title[:57] + "..."
+                        #if len(title) > 60:
+                        #    title = title[:57] + "..."
 
-                        lines.append(f"- [#{issue_number}]({url}) {title} (已 {hours:.1f}h 未更新)")
+                        lines.append(f"- {url} ({hours:.1f}h 未更新)")
 
         lines.append("")
         return lines
