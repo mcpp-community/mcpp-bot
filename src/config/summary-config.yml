@@ -1,0 +1,38 @@
+# ============================================================
+# Summary Report Configuration - 摘要报告配置
+# ============================================================
+#
+# 这个配置文件控制 SummaryReporter 的行为
+# SummaryReporter 是一个通用库，用于收集、生成和发布组件运行摘要
+#
+# 使用方法:
+#   from libs.summary_reporter import SummaryReporter
+#   reporter = SummaryReporter()
+#   reporter.add_component_summary("my-component", {...})
+#   reporter.post_to_issue()
+#
+# ============================================================
+
+# 启用或禁用摘要报告功能
+# true: 启用自动发布摘要到 GitHub Issue
+# false: 禁用发布功能（仍可生成摘要文本）
+enabled: true
+
+# 摘要报告将发布到的目标 GitHub Issue URL
+# 格式: https://github.com/{owner}/{repo}/issues/{number}
+# 示例: https://github.com/mcpp-community/OpenOrg/issues/64
+#
+# 要求:
+#   - 必须是完整的 GitHub Issue URL
+#   - GitHub Token 需要有对该仓库的写权限
+target_issue_url: https://github.com/mcpp-community/OpenOrg/issues/64
+
+# 摘要报告标题模板
+# 支持的占位符:
+#   {date} - 将被替换为当前日期时间
+title_template: "🤖 MCPP Bot 运行报告 - {date}"
+
+# 是否在摘要中包含详细统计信息
+# true: 显示所有详细统计数据（适合调试和详细追踪）
+# false: 只显示关键指标（简洁模式）
+include_details: true

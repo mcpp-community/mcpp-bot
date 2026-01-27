@@ -58,14 +58,15 @@ def check_task_timeout(token, repo, issue, config, verbose=False):
         verbose: Enable verbose logging
 
     Returns:
-        True if reminder was sent, False otherwise
+        Dictionary with reminder info if sent, None otherwise
+        Format: {"priority": "P0", "issue_number": 123, "title": "...", "url": "..."}
     """
     # Get priority from labels
     priority = get_label_value(issue, config.get("priority_pattern", r"^P([012])$"))
     if not priority:
         if verbose:
             print(f"  ⊘ 跳过: 未找到优先级标签")
-        return False
+        return None
 
     # Get timeout hours for this priority
     timeout_key = f"P{priority}"
@@ -73,7 +74,7 @@ def check_task_timeout(token, repo, issue, config, verbose=False):
     if timeout_hours is None:
         if verbose:
             print(f"  ⊘ 跳过: {timeout_key} 未配置超时时间")
-        return False
+        return None
 
     # Check if issue has timed out
     hours_since_update = get_hours_since_update(issue)
@@ -83,7 +84,7 @@ def check_task_timeout(token, repo, issue, config, verbose=False):
     if hours_since_update < timeout_hours:
         if verbose:
             print(f"  ⊘ 跳过: 未超时")
-        return False
+        return None
 
     # Get assignees to mention
     assignees = get_issue_assignees(issue)
@@ -131,7 +132,14 @@ def check_task_timeout(token, repo, issue, config, verbose=False):
         # This would require adding a label function in github_client
         pass
 
-    return True
+    # Return reminder info
+    return {
+        "priority": timeout_key,
+        "issue_number": issue_number,
+        "title": issue_title,
+        "url": issue.get("html_url", f"https://github.com/{repo}/issues/{issue_number}"),
+        "hours_since_update": hours_since_update,
+    }
 
 
 def scan_repo_tasks(token, repo, config, verbose=False):
@@ -145,7 +153,7 @@ def scan_repo_tasks(token, repo, config, verbose=False):
         verbose: Enable verbose logging
 
     Returns:
-        Number of reminders sent
+        Dictionary with summary statistics
     """
     # Build search query for open issues with Task label
     task_label = config.get("task_label", "Task")
@@ -164,7 +172,7 @@ def scan_repo_tasks(token, repo, config, verbose=False):
         issues = search_issues(token, query)
     except RuntimeError as e:
         print(f"Error searching {repo}: {e}")
-        return 0
+        return {"total_issues": 0, "reminders_sent": 0, "skipped": 0, "reminded_issues": []}
 
     if verbose:
         print(f"找到 {len(issues)} 个待检查的任务 Issue\n")
@@ -173,7 +181,12 @@ def scan_repo_tasks(token, repo, config, verbose=False):
     priority_filter = config.get("priorities_to_check", ["P0", "P1", "P2"])
     priority_pattern = config.get("priority_pattern", r"^P([012])$")
 
-    reminders_sent = 0
+    summary = {
+        "total_issues": len(issues),
+        "reminders_sent": 0,
+        "skipped": 0,
+        "reminded_issues": [],  # List of issues that got reminders
+    }
     for issue in issues:
         if verbose:
             print(f"检查 Issue #{issue['number']}: {issue['title']}")
@@ -181,19 +194,22 @@ def scan_repo_tasks(token, repo, config, verbose=False):
         # Check if issue has one of the target priorities
         priority = get_label_value(issue, priority_pattern)
         if not priority or f"P{priority}" not in priority_filter:
+            summary["skipped"] += 1
             if verbose:
                 print(f"  ⊘ 跳过: 优先级 P{priority} 不在检查范围 {priority_filter}\n")
             continue
 
         # Check if timeout and send reminder
-        if check_task_timeout(token, repo, issue, config, verbose=verbose):
-            reminders_sent += 1
+        reminder_info = check_task_timeout(token, repo, issue, config, verbose=verbose)
+        if reminder_info:
+            summary["reminders_sent"] += 1
+            summary["reminded_issues"].append(reminder_info)
             print(f"✓ 发送提醒 {repo}#{issue['number']}: {issue['title']}")
 
         if verbose:
             print()
 
-    return reminders_sent
+    return summary
 
 
 def scan_org_tasks(token, org, config, verbose=False):
@@ -207,20 +223,27 @@ def scan_org_tasks(token, org, config, verbose=False):
         verbose: Enable verbose logging
 
     Returns:
-        Number of reminders sent
+        Dictionary with summary statistics
     """
     # Get all repositories in the org
     try:
         repos = list_org_repos(token, org)
     except RuntimeError as e:
         print(f"Error listing repos for {org}: {e}")
-        return 0
+        return {"total_repos": 0, "total_issues": 0, "reminders_sent": 0, "skipped": 0}
 
     if verbose:
         print(f"组织 {org} 中找到 {len(repos)} 个仓库\n")
 
     # Scan each repository
-    total_reminders = 0
+    total_summary = {
+        "total_repos": 0,
+        "total_issues": 0,
+        "reminders_sent": 0,
+        "skipped": 0,
+        "reminded_issues": [],  # Aggregate all reminded issues
+    }
+
     for repo_obj in repos:
         repo_full_name = repo_obj["full_name"]
 
@@ -234,12 +257,16 @@ def scan_org_tasks(token, org, config, verbose=False):
             continue
 
         print(f"扫描仓库: {repo_full_name}")
-        reminders = scan_repo_tasks(token, repo_full_name, config, verbose=verbose)
-        total_reminders += reminders
+        repo_summary = scan_repo_tasks(token, repo_full_name, config, verbose=verbose)
+        total_summary["total_repos"] += 1
+        total_summary["total_issues"] += repo_summary.get("total_issues", 0)
+        total_summary["reminders_sent"] += repo_summary.get("reminders_sent", 0)
+        total_summary["skipped"] += repo_summary.get("skipped", 0)
+        total_summary["reminded_issues"].extend(repo_summary.get("reminded_issues", []))
         if verbose:
             print()
 
-    return total_reminders
+    return total_summary
 
 
 def check(verbose=False):
@@ -275,8 +302,8 @@ def check(verbose=False):
             raise ValueError("Organization (org) must be set in config when scan_mode is 'org'")
 
         print(f"扫描组织: {org}")
-        reminders_sent = scan_org_tasks(token, org, cfg, verbose=verbose)
-        print(f"\n总计发送提醒: {reminders_sent}")
+        summary = scan_org_tasks(token, org, cfg, verbose=verbose)
+        print(f"\n总计发送提醒: {summary.get('reminders_sent', 0)}")
 
     elif scan_mode == "repo":
         # Scan single repository
@@ -285,11 +312,13 @@ def check(verbose=False):
             raise ValueError("Repository (repo) must be set in config when scan_mode is 'repo'")
 
         print(f"扫描仓库: {repo}")
-        reminders_sent = scan_repo_tasks(token, repo, cfg, verbose=verbose)
-        print(f"\n总计发送提醒: {reminders_sent}")
+        summary = scan_repo_tasks(token, repo, cfg, verbose=verbose)
+        print(f"\n总计发送提醒: {summary.get('reminders_sent', 0)}")
 
     else:
         raise ValueError(f"Invalid scan_mode: {scan_mode}. Must be 'repo' or 'org'")
+
+    return summary
 
 
 if __name__ == "__main__":

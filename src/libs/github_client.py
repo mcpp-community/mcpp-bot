@@ -239,3 +239,43 @@ def list_org_repos(token, org):
     if code != 200:
         raise RuntimeError(f"Failed to list repos: {code} {payload}")
     return payload or []
+
+def parse_issue_url(url):
+    """
+    Parse a GitHub issue URL to extract repo and issue number.
+
+    Args:
+        url: GitHub issue URL (e.g., https://github.com/owner/repo/issues/123)
+
+    Returns:
+        Tuple of (repo, issue_number) or (None, None) if invalid
+
+    Example:
+        >>> parse_issue_url("https://github.com/mcpp-community/OpenOrg/issues/64")
+        ("mcpp-community/OpenOrg", 64)
+    """
+    import re
+    match = re.match(r"https://github\.com/([^/]+/[^/]+)/issues/(\d+)", url)
+    if match:
+        return match.group(1), int(match.group(2))
+    return None, None
+
+def post_summary_comment(token, issue_url, summary_text):
+    """
+    Post a summary comment to a GitHub issue.
+
+    Args:
+        token: GitHub API token
+        issue_url: Full GitHub issue URL
+        summary_text: Markdown-formatted summary text to post
+
+    Returns:
+        True if successful, False otherwise
+    """
+    repo, issue_number = parse_issue_url(issue_url)
+    if not repo or not issue_number:
+        print(f"✗ 无效的 issue URL: {issue_url}")
+        return False
+
+    comment(token, repo, issue_number, summary_text)
+    return True

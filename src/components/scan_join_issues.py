@@ -51,6 +51,18 @@ def scan(verbose=False):
     if verbose:
         print(f"找到 {len(issues)} 个待处理的加入请求\n")
 
+    # Initialize summary statistics
+    summary = {
+        "total_issues": len(issues),
+        "title_updated": 0,
+        "not_member_yet": 0,
+        "reminder_sent": 0,
+        "team_added": 0,
+        "team_add_failed": 0,
+        "completed": 0,
+        "skipped": 0,
+    }
+
     for it in issues:
         issue_number = it["number"]
         author = it["user"]["login"]
@@ -64,6 +76,7 @@ def scan(verbose=False):
             new_title = issue_title.replace("@<your-username>", f"@{author}")
             code, _ = update_issue_title(token, repo, issue_number, new_title)
             if code in (200, 201):
+                summary["title_updated"] += 1
                 if verbose:
                     print(f"  ✓ 更新标题: {issue_title} → {new_title}")
             else:
@@ -72,6 +85,7 @@ def scan(verbose=False):
 
         target = get_target_from_labels(it)
         if not target or target not in teams_cfg:
+            summary["skipped"] += 1
             if verbose:
                 print(f"  ⊘ 跳过: 未找到有效的目标团队标签 (target={target})\n")
             continue
@@ -84,9 +98,11 @@ def scan(verbose=False):
 
         # If not org member yet, remind and keep open
         if not is_org_member(token, org, author):
+            summary["not_member_yet"] += 1
             if verbose:
                 print(f"  ⊘ 跳过: @{author} 还不是 @{org} 成员")
             if has_label(it, "invited"):
+                summary["reminder_sent"] += 1
                 if verbose:
                     print(f"  → 发送提醒评论")
                 comment(token, repo, issue_number,
@@ -106,6 +122,7 @@ def scan(verbose=False):
                 code, payload = add_user_to_team(token, org, team_slug, author)
                 if code not in (200, 201):
                     # Can't add team for some reason; leave a note and continue
+                    summary["team_add_failed"] += 1
                     if verbose:
                         print(f"  ✗ 添加团队失败 (HTTP {code})")
                     comment(token, repo, issue_number,
@@ -114,6 +131,7 @@ def scan(verbose=False):
                     if verbose:
                         print()
                     continue
+                summary["team_added"] += 1
                 if verbose:
                     print(f"  ✓ 成功添加到团队")
             else:
@@ -121,6 +139,7 @@ def scan(verbose=False):
                     print(f"  ✓ 已在团队 @{org}/{team_slug} 中")
 
         # Now complete: comment + close
+        summary["completed"] += 1
         if verbose:
             print(f"  ✓ 处理完成，关闭 Issue")
         if team_slug:
@@ -132,6 +151,8 @@ def scan(verbose=False):
 
         if verbose:
             print()
+
+    return summary
 
 if __name__ == "__main__":
     scan()

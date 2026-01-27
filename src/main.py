@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from components.scan_join_issues import scan as scan_join_issues
 from components.task_checker import check as check_tasks
+from libs.summary_reporter import SummaryReporter
 
 
 def main():
@@ -53,6 +54,12 @@ Environment Variables:
         help='Enable verbose output'
     )
 
+    parser.add_argument(
+        '--no-summary',
+        action='store_true',
+        help='Disable posting summary report to issue'
+    )
+
     args = parser.parse_args()
 
     # Determine which components to run
@@ -66,6 +73,9 @@ Environment Variables:
     print("MCPP Bot - GitHub Automation")
     print("=" * 60)
 
+    # Initialize summary reporter
+    reporter = SummaryReporter()
+
     # Run components
     errors = []
 
@@ -73,12 +83,14 @@ Environment Variables:
         print("\n[1/2] Running Join Issues Scanner...")
         print("-" * 60)
         try:
-            scan_join_issues(verbose=args.verbose)
+            summary = scan_join_issues(verbose=args.verbose)
+            reporter.add_component_summary("join-issues", summary)
             print("✓ Join Issues Scanner completed successfully")
         except Exception as e:
-            error_msg = f"✗ Join Issues Scanner failed: {e}"
-            print(error_msg)
+            error_msg = f"Join Issues Scanner failed: {e}"
+            print(f"✗ {error_msg}")
             errors.append(error_msg)
+            reporter.add_error(error_msg)
             if args.verbose:
                 import traceback
                 traceback.print_exc()
@@ -87,12 +99,27 @@ Environment Variables:
         print("\n[2/2] Running Task Checker...")
         print("-" * 60)
         try:
-            check_tasks(verbose=args.verbose)
+            summary = check_tasks(verbose=args.verbose)
+            reporter.add_component_summary("task-checker", summary)
             print("✓ Task Checker completed successfully")
         except Exception as e:
-            error_msg = f"✗ Task Checker failed: {e}"
-            print(error_msg)
+            error_msg = f"Task Checker failed: {e}"
+            print(f"✗ {error_msg}")
             errors.append(error_msg)
+            reporter.add_error(error_msg)
+            if args.verbose:
+                import traceback
+                traceback.print_exc()
+
+    # Post summary report to issue (if enabled)
+    if not args.no_summary:
+        print("\n" + "=" * 60)
+        print("Posting Summary Report")
+        print("=" * 60)
+        try:
+            reporter.post_to_issue(verbose=args.verbose)
+        except Exception as e:
+            print(f"✗ 生成或发布摘要时出错: {e}")
             if args.verbose:
                 import traceback
                 traceback.print_exc()
