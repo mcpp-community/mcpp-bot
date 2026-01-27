@@ -20,7 +20,8 @@ from libs.utils import load_simple_yaml
 
 def scan():
     # Load configuration first
-    cfg = load_simple_yaml("config/join-config.yml")
+    config_path = Path(__file__).parent.parent / "config" / "join-config.yml"
+    cfg = load_simple_yaml(str(config_path))
 
     # Get token from environment variable
     token = os.environ.get("GH_TOKEN", "").strip()

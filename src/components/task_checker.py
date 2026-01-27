@@ -214,7 +214,8 @@ def check():
     Main function to check tasks and send reminders based on configuration.
     """
     # Load configuration
-    cfg = load_simple_yaml("config/task-checker.yml")
+    config_path = Path(__file__).parent.parent / "config" / "task-checker.yml"
+    cfg = load_simple_yaml(str(config_path))
 
     # Get token from environment variable
     token = os.environ.get("GH_TOKEN", "").strip()
