@@ -107,7 +107,9 @@ def check_task_timeout(token, repo, issue, config, verbose=False):
     if not assignees:
         # No assignees, optionally notify in config
         if not config.get("notify_unassigned", False):
-            return False
+            if verbose:
+                print(f"  ⊘ 跳过: 无负责人且未启用 notify_unassigned")
+            return {"skip_reason": "no_assignee"}
 
         # Handle default_mention as string or list
         default_mention = config.get("default_mention", "@team")
