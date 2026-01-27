@@ -1,0 +1,52 @@
+name: Daily Bot Tasks
+
+on:
+  schedule:
+    # Run daily at 02:00 China Time (18:00 UTC)
+    - cron: "0 18 * * *"
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      components:
+        description: 'Components to run (all, join-issues, task-checker)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - join-issues
+          - task-checker
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: mcpp-community
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run MCPP Bot
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          # Determine which components to run
+          COMPONENTS="${{ github.event.inputs.components || 'all' }}"
+
+          echo "Running MCPP Bot with components: $COMPONENTS"
+          python src/main.py $COMPONENTS --verbose

@@ -1,0 +1,14 @@
+org: mcpp-community
+repo: mcpp-community/mcpp-bot
+
+teams:
+  members:
+    mode: auto
+    team_slug: members
+
+  vteam:
+    mode: approval
+    team_slug: vteam
+    reviewers:
+      users: ["sunrisepeak"]
+      teams: ["coreteam"]  # 至少需要一个 coreteam 成员 + sunrisepeak

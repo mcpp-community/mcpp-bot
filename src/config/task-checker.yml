@@ -1,0 +1,66 @@
+# Task Checker Configuration
+#
+# This configuration defines how the task checker scans for overdue tasks
+# and sends reminders to assignees.
+
+# Scan mode: "repo" for single repository, "org" for entire organization
+scan_mode: org
+
+# Organization name (required when scan_mode is "org")
+org: mcpp-community
+
+# Repository name in "owner/name" format (required when scan_mode is "repo")
+repo: mcpp-community/mcpp-bot
+
+# Task label name to identify task issues
+task_label: Task
+
+# Priority label pattern (regex with one capture group)
+# Default pattern matches P0, P1, P2 labels
+priority_pattern: "^P([012])$"
+
+# Timeout hours for each priority level
+# After these hours without update, a reminder will be sent
+timeout_hours:
+  P0: 72    # High priority: 72 hours (3 days)
+  P1: 168    # Medium priority: 168 hours (7 days)
+  P2: 336   # Low priority: 336 hours (14 days)
+
+# Which priorities to check (optional, defaults to all)
+# You can limit checking to specific priorities
+priorities_to_check: ["P0", "P1", "P2"]
+
+# Exclude specific repositories when scanning an organization
+# Can use short name or full "owner/name" format
+exclude_repos:
+  # - mcpp-community/archived-repo
+  # - internal-repo
+
+# Whether to notify for tasks without assignees
+notify_unassigned: false
+
+# Default mention when task has no assignees (only used if notify_unassigned is true)
+# Can be a string or a list of mentions
+default_mention: ["@mcpp-community/vteam", "@mcpp-community/coreteam"]
+# Or use single string:
+# default_mention: "@mcpp-community/vteam"
+
+# Whether to add a "reminded" label after sending reminder
+add_reminded_label: false
+
+# Reminder message template
+# Available placeholders:
+#   {assignees} - @ mentions of assignees
+#   {priority} - Priority level (P0/P1/P2)
+#   {hours} - Hours since last update (as decimal)
+#   {title} - Issue title
+#   {timeout} - Timeout threshold in hours
+reminder_template: |
+  ⏰ **任务提醒**
+
+  {assignees} 这个 {priority} 优先级的任务已经 {hours:.1f} 小时没有更新了。
+
+  请及时更新进度或状态。
+
+  **Issue:** {title}
+  **超时阈值:** {timeout} 小时
