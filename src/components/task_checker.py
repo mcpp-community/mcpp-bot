@@ -12,8 +12,10 @@ from libs.github_client import (
     get_label_value,
     get_priority_from_project,
     get_issue_assignees,
+    get_issue_type,
     list_org_repos,
 )
+from libs.github_graphql import enrich_issues_with_projects
 from libs.utils import load_simple_yaml
 
 
@@ -80,6 +82,14 @@ def check_task_timeout(token, repo, issue, config, verbose=False):
     if timeout_hours is None:
         if verbose:
             print(f"  ⊘ 跳过: {timeout_key} 未配置超时时间")
+        return {"skip_reason": "no_timeout_config"}
+
+    # Convert to float (in case it's a string from YAML)
+    try:
+        timeout_hours = float(timeout_hours)
+    except (ValueError, TypeError):
+        if verbose:
+            print(f"  ⊘ 跳过: {timeout_key} 超时配置无效: {timeout_hours}")
         return {"skip_reason": "no_timeout_config"}
 
     # Check if issue has timed out
@@ -161,15 +171,19 @@ def scan_repo_tasks(token, repo, config, verbose=False):
     Returns:
         Dictionary with summary statistics
     """
-    # Build search query for open issues with Task label
-    task_label = config.get("task_label", "Task")
-
+    # Build search query for open issues
+    # Note: We can't filter by Type in search query since it's not a standard field
+    # We'll search for all open issues and filter by Type later
     query_parts = [
         f"repo:{repo}",
         "is:issue",
         "is:open",
-        f"label:{task_label}"
     ]
+
+    # Optionally add label filter if configured
+    task_label = config.get("task_label", "")
+    if task_label:
+        query_parts.append(f"label:{task_label}")
 
     query = " ".join(query_parts)
 
@@ -180,6 +194,7 @@ def scan_repo_tasks(token, repo, config, verbose=False):
         print(f"Error searching {repo}: {e}")
         return {
             "total_issues": 0,
+            "task_issues": 0,
             "checked_issues": 0,
             "reminders_sent": 0,
             "skipped_no_priority": 0,
@@ -190,7 +205,36 @@ def scan_repo_tasks(token, repo, config, verbose=False):
         }
 
     if verbose:
-        print(f"找到 {len(issues)} 个 Task 标签的 Issue\n")
+        print(f"找到 {len(issues)} 个打开的 Issue")
+
+    # 使用 GraphQL 补充 Projects 数据
+    # 注意：这会为每个 issue 产生一次额外的 API 调用
+    use_graphql = config.get("use_graphql_for_projects", True)
+    if use_graphql and issues:
+        if verbose:
+            print(f"使用 GraphQL API 获取 Projects 优先级数据（{len(issues)} 个 issues）...")
+        try:
+            issues = enrich_issues_with_projects(token, issues, verbose=verbose)
+            if verbose:
+                print()
+        except Exception as e:
+            if verbose:
+                print(f"⚠️ GraphQL API 调用失败: {e}")
+                print(f"将继续使用 Labels 方式检测优先级\n")
+    elif verbose:
+        print()
+
+    # Filter by Type first
+    task_type = config.get("task_type", "Task")
+    filtered_issues = []
+
+    for issue in issues:
+        issue_type = get_issue_type(issue)
+        if issue_type == task_type:
+            filtered_issues.append(issue)
+
+    if verbose:
+        print(f"其中 {len(filtered_issues)} 个 Type={task_type} 的任务\n")
 
     # Filter issues by priority and check for timeouts
     priority_filter = config.get("priorities_to_check", ["P0", "P1", "P2"])
@@ -198,6 +242,7 @@ def scan_repo_tasks(token, repo, config, verbose=False):
 
     summary = {
         "total_issues": len(issues),
+        "task_issues": len(filtered_issues),
         "checked_issues": 0,
         "reminders_sent": 0,
         "skipped_no_priority": 0,  # 未设置优先级
@@ -206,9 +251,11 @@ def scan_repo_tasks(token, repo, config, verbose=False):
         "skipped_not_timeout": 0,  # 未超时
         "reminded_issues": [],  # List of issues that got reminders
     }
-    for issue in issues:
+    for issue in filtered_issues:
         if verbose:
-            print(f"检查 Issue #{issue['number']}: {issue['title']}")
+            issue_number = issue["number"]
+            print(f"检查 Issue #{issue_number}")
+            print(f"  URL: {issue.get('html_url', f'https://github.com/{repo}/issues/{issue_number}')}")
 
         # Get priority from labels or project fields
         priority = get_label_value(issue, priority_pattern)
@@ -284,6 +331,7 @@ def scan_org_tasks(token, org, config, verbose=False):
     total_summary = {
         "total_repos": 0,
         "total_issues": 0,
+        "task_issues": 0,
         "checked_issues": 0,
         "reminders_sent": 0,
         "skipped_no_priority": 0,
@@ -309,6 +357,7 @@ def scan_org_tasks(token, org, config, verbose=False):
         repo_summary = scan_repo_tasks(token, repo_full_name, config, verbose=verbose)
         total_summary["total_repos"] += 1
         total_summary["total_issues"] += repo_summary.get("total_issues", 0)
+        total_summary["task_issues"] += repo_summary.get("task_issues", 0)
         total_summary["checked_issues"] += repo_summary.get("checked_issues", 0)
         total_summary["reminders_sent"] += repo_summary.get("reminders_sent", 0)
         total_summary["skipped_no_priority"] += repo_summary.get("skipped_no_priority", 0)

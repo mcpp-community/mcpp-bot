@@ -177,6 +177,7 @@ class SummaryReporter:
         lines.append("### ⏰ 任务检查器 (Task Checker)")
 
         total_issues = summary.get("total_issues", 0)
+        task_issues = summary.get("task_issues", 0)
         checked_issues = summary.get("checked_issues", 0)
         reminders = summary.get("reminders_sent", 0)
         reminded_issues = summary.get("reminded_issues", [])
@@ -191,7 +192,8 @@ class SummaryReporter:
         if "total_repos" in summary:
             lines.append(f"- **扫描仓库数:** {summary.get('total_repos', 0)}")
 
-        lines.append(f"- **问题总数 (Task标签):** {total_issues}")
+        lines.append(f"- **问题总数 (所有打开的):** {total_issues}")
+        lines.append(f"- **Task 类型问题:** {task_issues}")
         lines.append(f"- **检查的问题 (有优先级):** {checked_issues}")
         lines.append(f"- **发送提醒:** {reminders} 📬")
 

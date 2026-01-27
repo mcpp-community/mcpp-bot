@@ -159,6 +159,11 @@ def search_issues(token, query, per_page=100):
     """
     Search issues using GitHub search API.
 
+    Note: GitHub REST API Search 可能不会返回 issue_type 字段。
+    如果需要获取 issue_type，可能需要：
+    1. 为每个 issue 单独调用 GET /repos/:owner/:repo/issues/:number
+    2. 或者使用 GraphQL API
+
     Args:
         token: GitHub API token
         query: Search query string (e.g., "repo:owner/name is:issue is:open label:bug")
@@ -170,10 +175,95 @@ def search_issues(token, query, per_page=100):
     Raises:
         RuntimeError: If the search fails
     """
-    code, payload = gh("GET", f"search/issues?q={urllib.parse.quote(query)}&per_page={per_page}", token)
+    # 添加 Accept header 以获取 Beta 功能
+    # GitHub 的 issue_type 功能可能需要特殊的 Accept header
+    url = f"search/issues?q={urllib.parse.quote(query)}&per_page={per_page}"
+    code, payload = gh("GET", url, token)
     if code != 200:
         raise RuntimeError(f"Search failed: {code} {payload}")
-    return payload.get("items", [])
+
+    issues = payload.get("items", [])
+
+    # 如果搜索结果中没有 issue_type 字段，可以尝试为每个 issue 获取完整信息
+    # 但这会增加 API 调用次数，所以默认不启用
+    # 如果需要，可以取消下面的注释
+
+    # for i, issue in enumerate(issues):
+    #     if "issue_type" not in issue:
+    #         # 获取完整的 issue 信息
+    #         repo_url = issue.get("repository_url", "")
+    #         issue_number = issue.get("number")
+    #         if repo_url and issue_number:
+    #             owner_repo = "/".join(repo_url.split("/")[-2:])
+    #             code, full_issue = gh("GET", f"repos/{owner_repo}/issues/{issue_number}", token)
+    #             if code == 200 and full_issue:
+    #                 issues[i] = full_issue
+
+    return issues
+
+def get_issue_type(issue):
+    """
+    Get the type of an issue (Bug, Task, Feature, etc.).
+
+    GitHub Issues 的 Type 可以通过以下方式获取（按优先级）：
+    1. 原生 type 字段（GitHub REST API 返回的字段）
+    2. Labels 标签（如 "Task", "Type: Task", "type/task"）
+    3. Project 字段（未来支持）
+
+    Args:
+        issue: Issue object from GitHub API
+
+    Returns:
+        Issue type string (e.g., "Task", "Bug", "Feature") or empty string
+
+    Examples:
+        原生字段: issue["type"] = "Task"  (如果为 null 则没有设置)
+        标签方式: issue["labels"] = [{"name": "Task"}, ...]
+    """
+    # 1. 优先检查原生的 'type' 字段
+    # GitHub REST API 返回 "type" 字段，可能的值: "Task", "Bug", "Feature", null
+    type_field = issue.get("type")
+    if type_field:  # type_field 不是 None 且不是空字符串
+        if isinstance(type_field, str):
+            return type_field
+        elif isinstance(type_field, dict):
+            return type_field.get("name", "")
+
+    # 2. 检查 issue_type 字段（备用，某些 API 可能使用这个名称）
+    issue_type = issue.get("issue_type")
+    if issue_type:
+        if isinstance(issue_type, str):
+            return issue_type
+        elif isinstance(issue_type, dict):
+            return issue_type.get("name", "")
+
+    # 3. 从 labels 中查找 Type
+    for label in issue.get("labels", []):
+        label_name = label.get("name", "")
+
+        # 直接标签：Task, Bug, Feature
+        if label_name in ["Task", "Bug", "Feature", "Enhancement"]:
+            return label_name
+
+        # "Type: XXX" 格式
+        if label_name.startswith("Type:"):
+            return label_name.split(":", 1)[1].strip()
+
+        # "type/XXX" 格式
+        if label_name.startswith("type/"):
+            return label_name.split("/", 1)[1].strip()
+
+        # 中文标签支持
+        type_mapping = {
+            "任务": "Task",
+            "缺陷": "Bug",
+            "功能": "Feature",
+            "增强": "Enhancement",
+        }
+        if label_name in type_mapping:
+            return type_mapping[label_name]
+
+    return ""
 
 def list_open_join_issues(token, repo):
     """
@@ -213,30 +303,23 @@ def get_priority_from_project(issue):
     """
     Extract priority from GitHub Projects V2 field data.
 
-    GitHub Projects V2 stores custom field data in the issue object under
-    'projectItems' -> 'nodes' -> 'fieldValues' -> 'nodes'
+    注意: REST API 的 Search Issues 不返回 projectItems 字段！
+    如果需要从 Projects 获取优先级，必须：
+    1. 使用 GraphQL API
+    2. 或者在 issue 对象中查找 "project_priority" 字段（由 GraphQL 补充）
 
     Args:
-        issue: Issue object from GitHub API (with projectItems included)
+        issue: Issue object from GitHub API
 
     Returns:
         Priority value (e.g., "0", "1", "2") or empty string if not found
-
-    Example project field structure:
-        {
-            "projectItems": {
-                "nodes": [{
-                    "fieldValues": {
-                        "nodes": [{
-                            "field": {"name": "Priority"},
-                            "name": "P0"  # or "P1", "P2"
-                        }]
-                    }
-                }]
-            }
-        }
     """
-    # Try to get priority from project items
+    # 首先检查是否有 GraphQL 补充的 project_priority 字段
+    project_priority = issue.get("project_priority", "")
+    if project_priority:
+        return project_priority
+
+    # REST API 返回的 projectItems 字段（通常不存在）
     project_items = issue.get("projectItems", {})
     if isinstance(project_items, dict):
         nodes = project_items.get("nodes", [])

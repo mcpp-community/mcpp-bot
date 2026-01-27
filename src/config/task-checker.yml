@@ -12,8 +12,17 @@ org: mcpp-community
 # Repository name in "owner/name" format (required when scan_mode is "repo")
 repo: mcpp-community/mcpp-bot
 
-# Task label name to identify task issues
-task_label: Task
+# Issue Type 字段的值（Task, Bug, Feature 等）
+# 只检查 Type 为此值的 issues
+task_type: Task
+
+# 可选：如果还想通过 label 过滤，可以设置（留空表示不使用 label 过滤）
+task_label: ""
+
+# 是否使用 GraphQL API 获取 Projects 字段数据
+# true: 为每个 issue 调用 GraphQL API 获取 Projects 优先级（会增加 API 调用次数）
+# false: 只使用 Labels 检测优先级
+use_graphql_for_projects: true
 
 # Priority label pattern (regex with one capture group)
 # Default pattern matches P0, P1, P2 labels
@@ -21,9 +30,10 @@ priority_pattern: "^P([012])$"
 
 # Timeout hours for each priority level
 # After these hours without update, a reminder will be sent
+# 注意：必须是数字，不要加引号
 timeout_hours:
   P0: 72    # High priority: 72 hours (3 days)
-  P1: 168    # Medium priority: 168 hours (7 days)
+  P1: 168   # Medium priority: 168 hours (7 days)
   P2: 336   # Low priority: 336 hours (14 days)
 
 # Which priorities to check (optional, defaults to all)
