@@ -10,6 +10,7 @@ from libs.github_client import (
     search_issues,
     comment,
     get_label_value,
+    get_priority_from_project,
     get_issue_assignees,
     list_org_repos,
 )
@@ -59,14 +60,19 @@ def check_task_timeout(token, repo, issue, config, verbose=False):
 
     Returns:
         Dictionary with reminder info if sent, None otherwise
-        Format: {"priority": "P0", "issue_number": 123, "title": "...", "url": "..."}
+        Format: {"priority": "P0", "issue_number": 123, "title": "...", "url": "...", "skip_reason": "..."}
     """
-    # Get priority from labels
+    # Get priority from labels or project fields
     priority = get_label_value(issue, config.get("priority_pattern", r"^P([012])$"))
+
+    # If not found in labels, try project fields
+    if not priority:
+        priority = get_priority_from_project(issue)
+
     if not priority:
         if verbose:
-            print(f"  ⊘ 跳过: 未找到优先级标签")
-        return None
+            print(f"  ⊘ 跳过: 未找到优先级（标签或Project字段）")
+        return {"skip_reason": "no_priority"}
 
     # Get timeout hours for this priority
     timeout_key = f"P{priority}"
@@ -74,7 +80,7 @@ def check_task_timeout(token, repo, issue, config, verbose=False):
     if timeout_hours is None:
         if verbose:
             print(f"  ⊘ 跳过: {timeout_key} 未配置超时时间")
-        return None
+        return {"skip_reason": "no_timeout_config"}
 
     # Check if issue has timed out
     hours_since_update = get_hours_since_update(issue)
@@ -84,7 +90,7 @@ def check_task_timeout(token, repo, issue, config, verbose=False):
     if hours_since_update < timeout_hours:
         if verbose:
             print(f"  ⊘ 跳过: 未超时")
-        return None
+        return {"skip_reason": "not_timeout"}
 
     # Get assignees to mention
     assignees = get_issue_assignees(issue)
@@ -172,10 +178,19 @@ def scan_repo_tasks(token, repo, config, verbose=False):
         issues = search_issues(token, query)
     except RuntimeError as e:
         print(f"Error searching {repo}: {e}")
-        return {"total_issues": 0, "reminders_sent": 0, "skipped": 0, "reminded_issues": []}
+        return {
+            "total_issues": 0,
+            "checked_issues": 0,
+            "reminders_sent": 0,
+            "skipped_no_priority": 0,
+            "skipped_not_in_filter": 0,
+            "skipped_no_timeout_config": 0,
+            "skipped_not_timeout": 0,
+            "reminded_issues": []
+        }
 
     if verbose:
-        print(f"找到 {len(issues)} 个待检查的任务 Issue\n")
+        print(f"找到 {len(issues)} 个 Task 标签的 Issue\n")
 
     # Filter issues by priority and check for timeouts
     priority_filter = config.get("priorities_to_check", ["P0", "P1", "P2"])
@@ -183,28 +198,58 @@ def scan_repo_tasks(token, repo, config, verbose=False):
 
     summary = {
         "total_issues": len(issues),
+        "checked_issues": 0,
         "reminders_sent": 0,
-        "skipped": 0,
+        "skipped_no_priority": 0,  # 未设置优先级
+        "skipped_not_in_filter": 0,  # 优先级不在检查范围
+        "skipped_no_timeout_config": 0,  # 优先级未配置超时时间
+        "skipped_not_timeout": 0,  # 未超时
         "reminded_issues": [],  # List of issues that got reminders
     }
     for issue in issues:
         if verbose:
             print(f"检查 Issue #{issue['number']}: {issue['title']}")
 
-        # Check if issue has one of the target priorities
+        # Get priority from labels or project fields
         priority = get_label_value(issue, priority_pattern)
-        if not priority or f"P{priority}" not in priority_filter:
-            summary["skipped"] += 1
+        if not priority:
+            priority = get_priority_from_project(issue)
+
+        # Check if has priority
+        if not priority:
+            summary["skipped_no_priority"] += 1
+            if verbose:
+                print(f"  ⊘ 跳过: 未设置优先级（无标签或Project字段）\n")
+            continue
+
+        # Check if priority is in filter
+        if f"P{priority}" not in priority_filter:
+            summary["skipped_not_in_filter"] += 1
             if verbose:
                 print(f"  ⊘ 跳过: 优先级 P{priority} 不在检查范围 {priority_filter}\n")
             continue
 
+        # This issue has a valid priority and will be checked
+        summary["checked_issues"] += 1
+
         # Check if timeout and send reminder
         reminder_info = check_task_timeout(token, repo, issue, config, verbose=verbose)
+
         if reminder_info:
-            summary["reminders_sent"] += 1
-            summary["reminded_issues"].append(reminder_info)
-            print(f"✓ 发送提醒 {repo}#{issue['number']}: {issue['title']}")
+            # Check skip reason
+            skip_reason = reminder_info.get("skip_reason")
+            if skip_reason == "no_priority":
+                # Already handled above, shouldn't reach here
+                pass
+            elif skip_reason == "no_timeout_config":
+                summary["skipped_no_timeout_config"] += 1
+            elif skip_reason == "not_timeout":
+                summary["skipped_not_timeout"] += 1
+            elif skip_reason is None:
+                # Reminder was sent
+                summary["reminders_sent"] += 1
+                summary["reminded_issues"].append(reminder_info)
+                print(f"✓ 发送提醒 {repo}#{issue['number']}: {issue['title']}")
 
         if verbose:
             print()
@@ -239,8 +284,12 @@ def scan_org_tasks(token, org, config, verbose=False):
     total_summary = {
         "total_repos": 0,
         "total_issues": 0,
+        "checked_issues": 0,
         "reminders_sent": 0,
-        "skipped": 0,
+        "skipped_no_priority": 0,
+        "skipped_not_in_filter": 0,
+        "skipped_no_timeout_config": 0,
+        "skipped_not_timeout": 0,
         "reminded_issues": [],  # Aggregate all reminded issues
     }
 
@@ -260,8 +309,12 @@ def scan_org_tasks(token, org, config, verbose=False):
         repo_summary = scan_repo_tasks(token, repo_full_name, config, verbose=verbose)
         total_summary["total_repos"] += 1
         total_summary["total_issues"] += repo_summary.get("total_issues", 0)
+        total_summary["checked_issues"] += repo_summary.get("checked_issues", 0)
         total_summary["reminders_sent"] += repo_summary.get("reminders_sent", 0)
-        total_summary["skipped"] += repo_summary.get("skipped", 0)
+        total_summary["skipped_no_priority"] += repo_summary.get("skipped_no_priority", 0)
+        total_summary["skipped_not_in_filter"] += repo_summary.get("skipped_not_in_filter", 0)
+        total_summary["skipped_no_timeout_config"] += repo_summary.get("skipped_no_timeout_config", 0)
+        total_summary["skipped_not_timeout"] += repo_summary.get("skipped_not_timeout", 0)
         total_summary["reminded_issues"].extend(repo_summary.get("reminded_issues", []))
         if verbose:
             print()

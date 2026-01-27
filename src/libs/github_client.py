@@ -209,6 +209,63 @@ def get_label_value(issue, pattern):
             return m.group(1)
     return ""
 
+def get_priority_from_project(issue):
+    """
+    Extract priority from GitHub Projects V2 field data.
+
+    GitHub Projects V2 stores custom field data in the issue object under
+    'projectItems' -> 'nodes' -> 'fieldValues' -> 'nodes'
+
+    Args:
+        issue: Issue object from GitHub API (with projectItems included)
+
+    Returns:
+        Priority value (e.g., "0", "1", "2") or empty string if not found
+
+    Example project field structure:
+        {
+            "projectItems": {
+                "nodes": [{
+                    "fieldValues": {
+                        "nodes": [{
+                            "field": {"name": "Priority"},
+                            "name": "P0"  # or "P1", "P2"
+                        }]
+                    }
+                }]
+            }
+        }
+    """
+    # Try to get priority from project items
+    project_items = issue.get("projectItems", {})
+    if isinstance(project_items, dict):
+        nodes = project_items.get("nodes", [])
+    else:
+        nodes = project_items or []
+
+    for project_item in nodes:
+        field_values = project_item.get("fieldValues", {})
+        if isinstance(field_values, dict):
+            field_nodes = field_values.get("nodes", [])
+        else:
+            field_nodes = field_values or []
+
+        for field_value in field_nodes:
+            field = field_value.get("field", {})
+            field_name = field.get("name", "")
+
+            # Check if this is a priority field
+            if field_name.lower() in ["priority", "优先级"]:
+                # Get the value
+                value_name = field_value.get("name", "")
+                # Extract priority number from "P0", "P1", "P2"
+                if value_name and value_name.startswith("P"):
+                    priority_num = value_name[1:]  # Get "0", "1", "2"
+                    if priority_num in ["0", "1", "2"]:
+                        return priority_num
+
+    return ""
+
 def get_issue_assignees(issue):
     """
     Get assignees from an issue.

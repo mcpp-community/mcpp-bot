@@ -177,19 +177,41 @@ class SummaryReporter:
         lines.append("### ⏰ 任务检查器 (Task Checker)")
 
         total_issues = summary.get("total_issues", 0)
+        checked_issues = summary.get("checked_issues", 0)
         reminders = summary.get("reminders_sent", 0)
-        skipped = summary.get("skipped", 0)
         reminded_issues = summary.get("reminded_issues", [])
+
+        # 跳过统计
+        skipped_no_priority = summary.get("skipped_no_priority", 0)
+        skipped_not_in_filter = summary.get("skipped_not_in_filter", 0)
+        skipped_no_timeout_config = summary.get("skipped_no_timeout_config", 0)
+        skipped_not_timeout = summary.get("skipped_not_timeout", 0)
 
         # 简要统计
         if "total_repos" in summary:
             lines.append(f"- **扫描仓库数:** {summary.get('total_repos', 0)}")
 
-        lines.append(f"- **检查的任务:** {total_issues}")
+        lines.append(f"- **问题总数 (Task标签):** {total_issues}")
+        lines.append(f"- **检查的问题 (有优先级):** {checked_issues}")
         lines.append(f"- **发送提醒:** {reminders} 📬")
 
         if include_details:
-            lines.append(f"- **跳过:** {skipped}")
+            # 详细的跳过原因统计
+            total_skipped = skipped_no_priority + skipped_not_in_filter + skipped_no_timeout_config + skipped_not_timeout
+            lines.append(f"- **跳过的问题:** {total_skipped}")
+            if total_skipped > 0:
+                if skipped_no_priority > 0:
+                    lines.append(f"  - 未设置优先级 (无Project/标签): {skipped_no_priority}")
+                if skipped_not_in_filter > 0:
+                    lines.append(f"  - 优先级不在检查范围: {skipped_not_in_filter}")
+                if skipped_no_timeout_config > 0:
+                    lines.append(f"  - 优先级未配置超时: {skipped_no_timeout_config}")
+                if skipped_not_timeout > 0:
+                    lines.append(f"  - 未超时: {skipped_not_timeout}")
+        else:
+            # 简要模式只显示未设置优先级的数量
+            if skipped_no_priority > 0:
+                lines.append(f"- **跳过 (未设置优先级):** {skipped_no_priority}")
 
         # 按优先级分类显示发送提醒的 issues
         if reminded_issues:
