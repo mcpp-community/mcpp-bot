@@ -65,6 +65,21 @@ def close_issue(token, repo, issue_number):
     """
     gh("PATCH", f"repos/{repo}/issues/{issue_number}", token, {"state": "closed"})
 
+def update_issue_title(token, repo, issue_number, new_title):
+    """
+    Update the title of a GitHub issue.
+
+    Args:
+        token: GitHub API token
+        repo: Repository in "owner/name" format
+        issue_number: Issue number
+        new_title: New title for the issue
+
+    Returns:
+        Tuple of (status_code, response_payload)
+    """
+    return gh("PATCH", f"repos/{repo}/issues/{issue_number}", token, {"title": new_title})
+
 def has_label(issue, name):
     """
     Check if an issue has a specific label.

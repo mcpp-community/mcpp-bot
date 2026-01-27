@@ -73,7 +73,7 @@ Environment Variables:
         print("\n[1/2] Running Join Issues Scanner...")
         print("-" * 60)
         try:
-            scan_join_issues()
+            scan_join_issues(verbose=args.verbose)
             print("✓ Join Issues Scanner completed successfully")
         except Exception as e:
             error_msg = f"✗ Join Issues Scanner failed: {e}"
@@ -87,7 +87,7 @@ Environment Variables:
         print("\n[2/2] Running Task Checker...")
         print("-" * 60)
         try:
-            check_tasks()
+            check_tasks(verbose=args.verbose)
             print("✓ Task Checker completed successfully")
         except Exception as e:
             error_msg = f"✗ Task Checker failed: {e}"
