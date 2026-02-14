@@ -136,6 +136,7 @@ class SummaryReporter:
         completed = summary.get("completed", 0)
         skipped = summary.get("skipped", 0)
         not_member = summary.get("not_member_yet", 0)
+        waiting_approval = summary.get("waiting_approval", 0)
 
         # 简要统计
         lines.append(f"- **待处理请求:** {total}")
@@ -145,6 +146,8 @@ class SummaryReporter:
             lines.append(f"- **标题已更新:** {summary.get('title_updated', 0)}")
             lines.append(f"- **等待加入组织:** {not_member}")
             lines.append(f"  - 发送提醒: {summary.get('reminder_sent', 0)}")
+            if waiting_approval > 0:
+                lines.append(f"- **等待审核:** {waiting_approval}")
             lines.append(f"- **已添加到团队:** {summary.get('team_added', 0)}")
 
             team_failed = summary.get("team_add_failed", 0)
@@ -156,6 +159,8 @@ class SummaryReporter:
             # 简化模式：只显示关键指标
             if not_member > 0:
                 lines.append(f"- **等待加入组织:** {not_member} (已发送 {summary.get('reminder_sent', 0)} 条提醒)")
+            if waiting_approval > 0:
+                lines.append(f"- **等待审核:** {waiting_approval}")
             if skipped > 0:
                 lines.append(f"- **跳过:** {skipped}")
 

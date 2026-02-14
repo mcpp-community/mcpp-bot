@@ -155,6 +155,27 @@ def is_user_in_team(token, org, team_slug, username):
     code, payload = gh("GET", f"orgs/{org}/teams/{team_slug}/memberships/{username}", token)
     return code == 200 and payload and payload.get("state") in ("active", "pending")
 
+def list_issue_comments(token, repo, issue_number, per_page=100):
+    """
+    List comments for a GitHub issue.
+
+    Args:
+        token: GitHub API token
+        repo: Repository in "owner/name" format
+        issue_number: Issue number
+        per_page: Number of results per page (max 100)
+
+    Returns:
+        List of comment objects
+
+    Raises:
+        RuntimeError: If the request fails
+    """
+    code, payload = gh("GET", f"repos/{repo}/issues/{issue_number}/comments?per_page={per_page}", token)
+    if code != 200:
+        raise RuntimeError(f"Failed to list issue comments: {code} {payload}")
+    return payload or []
+
 def search_issues(token, query, per_page=100):
     """
     Search issues using GitHub search API.

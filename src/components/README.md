@@ -16,6 +16,25 @@ python src/components/scan_join_issues.py
 
 **Configuration:** `config/join-config.yml`
 
+**Approval Mode:**
+- When a team is configured with `mode: approval`, the user will only be added after approvals are found.
+- Approvals are detected from issue comments that contain approval keywords, or an optional approval label.
+- `reviewers.users`: All specified users must approve.
+- `reviewers.teams`: Each team requires approval from at least one member.
+
+Example:
+```yaml
+teams:
+  vteam:
+    mode: approval
+    team_slug: vteam
+    reviewers:
+      users: ["sunrisepeak"]
+      teams: ["coreteam"]
+    approval_keywords: ["/approve", "approve", "lgtm"]
+    approval_label: "approved"
+```
+
 ### 2. task_checker.py
 
 Scans for task issues with priority labels (P0/P1/P2) and sends reminders if they haven't been updated within configured timeouts.
