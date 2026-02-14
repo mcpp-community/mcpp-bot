@@ -14,10 +14,86 @@ from libs.github_client import (
     is_org_member,
     add_user_to_team,
     is_user_in_team,
+    list_issue_comments,
     list_open_join_issues,
     update_issue_title,
 )
 from libs.utils import load_simple_yaml
+
+def _normalize_list(value):
+    if not value:
+        return []
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    return [str(value).strip()]
+
+def _is_approval_comment(body, keywords):
+    if not body:
+        return False
+    text = body.lower()
+    for kw in keywords:
+        if kw and kw.lower() in text:
+            return True
+    return False
+
+def _is_issue_approved(token, repo, org, issue, team_cfg, team_slug, verbose=False):
+    reviewers = team_cfg.get("reviewers") or {}
+    required_users = _normalize_list(reviewers.get("users"))
+    required_teams = _normalize_list(reviewers.get("teams"))
+
+    approval_label = team_cfg.get("approval_label") or team_cfg.get("approved_label")
+    if approval_label and has_label(issue, approval_label):
+        return True
+
+    approval_keywords = _normalize_list(team_cfg.get("approval_keywords"))
+    if not approval_keywords:
+        approval_keywords = ["/approve", "approve", "approved", "lgtm", "同意", "批准", "通过", "已批准"]
+
+    if not required_users and not required_teams:
+        if verbose:
+            print("  ⊘ 跳过: 未配置审核人/团队")
+        return False
+
+    try:
+        comments = list_issue_comments(token, repo, issue["number"])
+    except RuntimeError as e:
+        if verbose:
+            print(f"  ✗ 获取评论失败: {e}")
+        return False
+
+    approvals = set()
+    for c in comments:
+        body = c.get("body", "")
+        if not _is_approval_comment(body, approval_keywords):
+            continue
+        author = c.get("user", {}).get("login", "")
+        if author:
+            approvals.add(author)
+
+    # Check required teams approvals (need at least one member approval per team)
+    team_member_cache = {}
+    for team in required_teams:
+        approved_by_team = False
+        for approver in approvals:
+            cache_key = (team, approver)
+            if cache_key not in team_member_cache:
+                team_member_cache[cache_key] = is_user_in_team(token, org, team, approver)
+            if team_member_cache[cache_key]:
+                approved_by_team = True
+                break
+        if not approved_by_team:
+            if verbose:
+                print(f"  ⊘ 跳过: 缺少团队 @{org}/{team} 成员的批准")
+            return False
+
+    # Check required users approvals
+    for user in required_users:
+        if user not in approvals:
+            if verbose:
+                print(f"  ⊘ 跳过: 缺少审核人 @{user} 的批准")
+            return False
+
+    return True
 
 def scan(verbose=False):
     # Load configuration first
@@ -57,6 +133,7 @@ def scan(verbose=False):
         "title_updated": 0,
         "not_member_yet": 0,
         "reminder_sent": 0,
+        "waiting_approval": 0,
         "team_added": 0,
         "team_add_failed": 0,
         "completed": 0,
@@ -92,6 +169,7 @@ def scan(verbose=False):
 
         team_cfg = teams_cfg[target]
         team_slug = team_cfg.get("team_slug", "") or ""
+        team_mode = team_cfg.get("mode", "auto")
 
         if verbose:
             print(f"  目标团队: {target} (team_slug={team_slug})")
@@ -113,6 +191,14 @@ def scan(verbose=False):
 
         if verbose:
             print(f"  ✓ @{author} 已是组织成员")
+
+        # If approval required, ensure it is approved before adding to team
+        if team_mode == "approval" and team_slug:
+            if not _is_issue_approved(token, repo, org, it, team_cfg, team_slug, verbose=verbose):
+                summary["waiting_approval"] += 1
+                if verbose:
+                    print(f"  ⊘ 跳过: @{author} 等待审核\n")
+                continue
 
         # If needs team, ensure team membership
         if team_slug:
